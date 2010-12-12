@@ -44,8 +44,11 @@ int serial_getc(void);
 int serial_getchar(FILE *);
 int serial_putchar(char c, FILE *);
 
-void timer_init(uint16_t);
+void timer_init(void);
+void timer_start(uint16_t ms);
 bool timer_done(void);
+
+uint32_t time_ms(void);
 
 int readline(char *, char *);
 
