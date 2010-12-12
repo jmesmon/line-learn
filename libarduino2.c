@@ -288,9 +288,10 @@ ISR(USART_RX_vect) {
 /*
  * Timer
  */
-static uint16_t g_timer_ticks = 0;
 static bool     g_timer_done  = false;
-static uint16_t g_timer_target = 0;
+static uint16_t g_timer_target_ms = 0;
+static uint16_t g_timer_ms;
+static uint16_t g_timer_fract;
 
 static uint32_t g_timer0_ms;
 static uint32_t g_timer0_fract;
@@ -303,7 +304,7 @@ void timer_init(void) {
 }
 
 void timer_start(uint16_t ms) {
-    g_timer_target = (F_CPU  / (64L * 1000L)) * ms / 256;
+    g_timer_target_ms = ms;
 }
 
 bool timer_done(void) {
@@ -312,35 +313,37 @@ bool timer_done(void) {
     return temp;
 }
 
-
-
 #define US_PER_TIM0_OVF ((64 * 256) / (F_CPU / 1000 / 1000))
 #define MS_INC (US_PER_TIM0_OVF / 1000)
 
 #define FRACT_INC ((US_PER_TIM0_OVF % 1000) >> 3)
 #define FRACT_MAX (1000 >> 3)
 
+#define UPDATE_TIM0(ms, fract)  \
+    {                           \
+        uint32_t m = (ms);      \
+        uint32_t f = (fract);   \
+        m += MS_INC;            \
+        f += FRACT_INC;         \
+        if (f >= FRACT_MAX) {   \
+            f -= FRACT_MAX;     \
+            m += 1;             \
+        }                       \
+                                \
+        (ms) = m;               \
+        (fract) = f;            \
+    }
+
 ISR(TIMER0_OVF_vect) {
-    if (g_timer_ticks == g_timer_target) {
-        g_timer_ticks = 0;
+    if (g_timer_ms >= g_timer_target_ms) {
+        g_timer_ms = 0;
+        g_timer_fract = 0;
         g_timer_done  = true;
     }
-    ++g_timer_ticks;
 
-    {
-        uint32_t m = g_timer0_ms;
-        uint32_t f = g_timer0_fract;
-        m += MS_INC;
-        f += FRACT_INC;
-        if (f >= FRACT_MAX) {
-            f -= FRACT_MAX;
-            m += 1;
-        }
+    UPDATE_TIM0(g_timer_ms, g_timer_fract);
 
-        g_timer0_ms = m;
-        g_timer0_fract = f;
-    }
-
+    UPDATE_TIM0(g_timer0_ms, g_timer0_fract);
 }
 
 /*
