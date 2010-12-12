@@ -290,8 +290,8 @@ ISR(USART_RX_vect) {
  */
 static bool     g_timer_done  = false;
 static uint16_t g_timer_target_ms = 0;
-static uint16_t g_timer_ms;
-static uint16_t g_timer_fract;
+static uint32_t g_timer_ms;
+static uint32_t g_timer_fract;
 
 static uint32_t g_timer0_ms;
 static uint32_t g_timer0_fract;
