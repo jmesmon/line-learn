@@ -42,7 +42,7 @@ void pwm_set(pin_t, uint8_t);
 FILE *serial_init(void);
 int serial_getc(void);
 int serial_getchar(FILE *);
-int serial_putchar(char, FILE *);
+int serial_putchar(char c, FILE *);
 
 void timer_init(uint16_t);
 bool timer_done(void);

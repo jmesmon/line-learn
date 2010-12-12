@@ -180,16 +180,19 @@ void pwm_set(pin_t pin, uint8_t value) {
 #define UART_BAUD (F_CPU / (SERIAL_BAUD * 16L) - 1)
 #define UART_SIZE 64
 
-static uint8_t g_uart_buf[UART_SIZE];
-static uint8_t g_uart_read  = 0;
-static uint8_t g_uart_write = 0;
+static struct uart_rx {
+    uint8_t buf[UART_SIZE];
+    uint8_t head;
+    uint8_t tail;
+} g_uart_rx;
 
-static uint8_t g_uart_tx_buf[UART_SIZE];
-static uint8_t g_uart_tx_read  = 0;
-static uint8_t g_uart_tx_write = 0;
+static struct uart_tx {
+    uint8_t buf[UART_SIZE];
+    uint8_t head;
+    uint8_t tail;
+} g_uart_tx;
 
-static FILE g_uart = FDEV_SETUP_STREAM(serial_putchar, serial_getchar,
-		_FDEV_SETUP_RW);
+static FILE g_uart;
 
 FILE *serial_init(void) {
     /* Set the default baud rate. */
@@ -202,6 +205,7 @@ FILE *serial_init(void) {
     sei();                  /* enable global interrupts */
 
     /* g_uart is initialized via FDEV_SETUP_STREAM initializer above */
+    fdev_setup_stream(&g_uart, serial_putchar, serial_getchar, _FDEV_SETUP_RW);
 
     stdout = &g_uart;
     stderr = &g_uart;
@@ -209,18 +213,18 @@ FILE *serial_init(void) {
     return &g_uart;
 }
 
-inline static barrier(void)
+inline static void barrier(void)
 {
-    volatile asm("":::"memory");
+    asm volatile("":::"memory");
 }
 
 int serial_getc(void) {
     char ch;
 
     /* Only read from the buffer if new data is available. */
-    if (g_uart_read != g_uart_write) {
-        ch = g_uart_buf[g_uart_read];
-        g_uart_read = (g_uart_read + 1) & (UART_SIZE - 1);
+    if (g_uart_rx.head != g_uart_rx.tail) {
+        ch = g_uart_rx.buf[g_uart_rx.tail];
+        g_uart_rx.tail = (g_uart_rx.tail + 1) & (sizeof(g_uart_rx.buf) - 1);
         return ch;
     } else {
         return EOF;
@@ -232,14 +236,14 @@ int serial_getchar(FILE *fp) {
 
     /* Block until data is available. */
 
-    while (g_uart_read == g_uart_write) {
+    while (g_uart_rx.head == g_uart_rx.tail) {
         /* force a re-read of uart_read, uart_write */
         barrier();
     }
 
     /* Read UART data from the ring buffer. */
-    ch = g_uart_buf[g_uart_read];
-    g_uart_read = (g_uart_read + 1) & (UART_SIZE - 1);
+    ch = g_uart_rx.buf[g_uart_rx.tail];
+    g_uart_rx.tail = (g_uart_rx.tail + 1) & (sizeof(g_uart_rx.buf) - 1);
     return ch;
 }
 
@@ -251,34 +255,34 @@ static void serial_txi_off(void) {
     UCSR0B &= ~(1 << UDRIE0);
 }
 
-int serial_putchar(int ch, FILE *fp) {
+int serial_putchar(char ch, FILE *fp) {
     /* Block until space is available. */
-    while ((g_uart_tx_write + 1) & (UART_SIZE - 1)
-            == g_uart_tx_read) {
+    while (((g_uart_tx.head + 1) & (sizeof(g_uart_tx.buf) - 1))
+            == g_uart_tx.tail) {
         barrier();
     }
 
-    g_uart_buf[g_uart_write] = ch;
-    g_uart_tx_write = (g_uart_tx_write + 1) & (UART_SIZE - 1);
+    g_uart_tx.buf[g_uart_tx.head] = ch;
+    g_uart_tx.head = (g_uart_tx.head + 1) & (sizeof(g_uart_tx.buf) - 1);
 
     serial_txi_on();
+    return 0;
 }
 
 ISR(USART_UDRE_vect) {
-    if (g_uart_tx_read == g_uart_tx_write) {
+    if (g_uart_tx.head == g_uart_tx.tail) {
         serial_txi_off();
         return;
     }
 
-    UDR0 = g_uart_tx_buf[g_uart_tx_read];
+    UDR0 = g_uart_tx.buf[g_uart_tx.tail];
 
-    uint8_t next_tail = (g_uart_tx_read + 1) & (UART_SIZE - 1);
-    g_uart_tx_read = next_tail;
+    g_uart_tx.tail = (g_uart_tx.tail + 1) & (sizeof(g_uart_tx.buf) - 1);
 }
 
 ISR(USART_RX_vect) {
-    g_uart_buf[g_uart_write] = UDR0;
-    g_uart_write = (g_uart_write + 1) & (UART_SIZE - 1);
+    g_uart_rx.buf[g_uart_rx.head] = UDR0;
+    g_uart_rx.head = (g_uart_rx.head + 1) & (sizeof(g_uart_rx.buf) - 1);
 }
 
 /*
